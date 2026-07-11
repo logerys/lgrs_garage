@@ -619,3 +619,56 @@ AddEventHandler('lgrs_garage:giveCarMenu', function()
 
     TriggerServerEvent('lgrs_garage:giveCar', targetId, model, plate, garage)
 end)
+
+RegisterNetEvent('lgrs_garage:useKeys')
+AddEventHandler('lgrs_garage:useKeys', function(plate)
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+    local vehicles = GetGamePool('CVehicle')
+    local foundVeh = nil
+
+    for i=1, #vehicles do
+        local veh = vehicles[i]
+        local vehPlate = ESX.Math.Trim(GetVehicleNumberPlateText(veh))
+        if vehPlate == ESX.Math.Trim(plate) then
+            local dist = #(coords - GetEntityCoords(veh))
+            if dist <= 20.0 then
+                foundVeh = veh
+                break
+            end
+        end
+    end
+
+    if foundVeh then
+        local lockStatus = GetVehicleDoorLockStatus(foundVeh)
+        
+        -- Přehrání animace klíčku
+        lib.requestAnimDict('anim@mp_player_intmenu@key_fob@')
+        TaskPlayAnim(playerPed, 'anim@mp_player_intmenu@key_fob@', 'fob_click', 8.0, 8.0, -1, 48, 1, false, false, false)
+
+        if lockStatus == 1 or lockStatus == 0 then
+            -- Zamknout (status 2 = locked)
+            SetVehicleDoorsLocked(foundVeh, 2)
+            lib.notify({title = 'Vozidlo', description = 'Vozidlo s SPZ '..plate..' bylo zamčeno.', type = 'success', icon = 'lock'})
+            ExecuteCommand("me zamknul auto")
+        else
+            -- Odemknout (status 1 = unlocked)
+            SetVehicleDoorsLocked(foundVeh, 1)
+            lib.notify({title = 'Vozidlo', description = 'Vozidlo s SPZ '..plate..' bylo odemčeno.', type = 'success', icon = 'lock-open'})
+            ExecuteCommand("me odemknul auto")
+        end
+
+        -- Bliknutí a zatroubení
+        SetVehicleLights(foundVeh, 2)
+        StartVehicleHorn(foundVeh, 50, "HELDDOWN", false)
+        Wait(200)
+        SetVehicleLights(foundVeh, 0)
+        Wait(200)
+        SetVehicleLights(foundVeh, 2)
+        StartVehicleHorn(foundVeh, 50, "HELDDOWN", false)
+        Wait(200)
+        SetVehicleLights(foundVeh, 0)
+    else
+        lib.notify({title = 'Chyba', description = 'Vozidlo (SPZ: '..plate..') není v dosahu.', type = 'error'})
+    end
+end)

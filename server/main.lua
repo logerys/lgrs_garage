@@ -346,3 +346,15 @@ ESX.RegisterServerCallback('lgrs_garage:buyKeys', function(source, cb, plate)
         end
     end)
 end)
+
+-- Usable item (carkeys)
+ESX.RegisterUsableItem('carkeys', function(source, itemName, itemData)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not itemData or not itemData.metadata or not itemData.metadata.plate then
+        TriggerClientEvent('ox_lib:notify', source, {title = 'Chyba', description = 'Tyto klíče nemají žádnou SPZ.', type = 'error'})
+        return
+    end
+
+    local plate = itemData.metadata.plate
+    TriggerClientEvent('lgrs_garage:useKeys', source, plate)
+end)
