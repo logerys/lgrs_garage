@@ -12,6 +12,10 @@ Add this block of code to the list:
         weight = 50,
         stack = false,
         close = true,
+        consume = 0,
+        client = {
+            export = 'lgrs_garage.useKeys'
+        },
         description = 'Used to unlock and park your vehicle.'
     },
 ```

@@ -163,6 +163,12 @@ ESX.RegisterServerCallback('lgrs_garage:payImpound', function(source, cb, plate,
             if rows > 0 then
                 MySQL.query('SELECT vehicle FROM owned_vehicles WHERE plate = ?', {plate}, function(result)
                     if result[1] then
+                        -- Give keys
+                        local meta = {
+                            plate = plate,
+                            description = "Klíče od vozidla (SPZ: " .. plate .. ")"
+                        }
+                        exports.ox_inventory:AddItem(source, 'carkeys', 1, meta)
                         cb(true, json.decode(result[1].vehicle))
                     else
                         cb(false)
@@ -282,16 +288,49 @@ ESX.RegisterServerCallback('lgrs_garage:renameVehicle', function(source, cb, pla
 
     -- Verify ownership
     MySQL.query('SELECT owner FROM owned_vehicles WHERE plate = ?', {plate}, function(result)
+        if result[1] then
+            local isOwner = (result[1].owner == xPlayer.identifier)
+            local isFactionBoss = (result[1].owner == xPlayer.job.name and xPlayer.job.grade_name == 'boss')
+
+            if isOwner or isFactionBoss then
+                MySQL.update('UPDATE owned_vehicles SET nickname = ? WHERE plate = ?', {newName, plate}, function(rows)
+                    if rows > 0 then
+                        cb(true)
+                    else
+                        cb(false, "Nepodařilo se přejmenovat vozidlo.")
+                    end
+                end)
+            else
+                cb(false, Config.Locale.not_owner)
+            end
+        else
+            cb(false, Config.Locale.not_owner)
+        end
+    end)
+end)
+
+ESX.RegisterServerCallback('lgrs_garage:transferToFaction', function(source, cb, plate)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return cb(false) end
+
+    if xPlayer.job.grade_name ~= 'boss' then
+        return cb(false, "Pouze boss frakce může přepsat vozidlo na frakci.")
+    end
+
+    local factionName = xPlayer.job.name
+
+    -- Verify ownership
+    MySQL.query('SELECT owner FROM owned_vehicles WHERE plate = ?', {plate}, function(result)
         if result[1] and result[1].owner == xPlayer.identifier then
-            MySQL.update('UPDATE owned_vehicles SET nickname = ? WHERE plate = ?', {newName, plate}, function(rows)
+            MySQL.update('UPDATE owned_vehicles SET owner = ? WHERE plate = ?', {factionName, plate}, function(rows)
                 if rows > 0 then
                     cb(true)
                 else
-                    cb(false, "Nepodařilo se přejmenovat vozidlo.")
+                    cb(false, "Nepodařilo se přepsat vozidlo na frakci.")
                 end
             end)
         else
-            cb(false, Config.Locale.not_owner)
+            cb(false, "Toto vozidlo ti nepatří!")
         end
     end)
 end)
@@ -347,14 +386,44 @@ ESX.RegisterServerCallback('lgrs_garage:buyKeys', function(source, cb, plate)
     end)
 end)
 
--- Usable item (carkeys)
+
+-- Usable item (carkeys) via ox_inventory Native Export
+exports('useKeys', function(event, item, inventory, slot, data)
+    print("OX INVENTORY EVENT TRIGGERED:", event)
+    if event == 'usingItem' then
+        local source = inventory.id
+        print("OX INVENTORY: usingItem for source:", source)
+        if not item or not item.metadata or not item.metadata.plate then
+            print("OX INVENTORY: No metadata or plate found")
+            TriggerClientEvent('ox_lib:notify', source, {title = 'Chyba', description = 'Tyto klíče nemají žádnou SPZ.', type = 'error'})
+            return false
+        end
+
+        local plate = item.metadata.plate
+        print("OX INVENTORY: Plate found, triggering client event:", plate)
+        TriggerClientEvent('lgrs_garage:useKeys', source, plate)
+        return false -- Return false to prevent consuming the item
+    end
+end)
+
+-- Usable item (carkeys) via ESX Compatibility
 ESX.RegisterUsableItem('carkeys', function(source, itemName, itemData)
-    local xPlayer = ESX.GetPlayerFromId(source)
+    print("CARKEYS USED! source: ", source, "itemName: ", itemName)
     if not itemData or not itemData.metadata or not itemData.metadata.plate then
+        print("CARKEYS: No metadata found.")
         TriggerClientEvent('ox_lib:notify', source, {title = 'Chyba', description = 'Tyto klíče nemají žádnou SPZ.', type = 'error'})
         return
     end
 
+    print("CARKEYS: Plate found -> ", itemData.metadata.plate)
+
     local plate = itemData.metadata.plate
     TriggerClientEvent('lgrs_garage:useKeys', source, plate)
+end)
+
+RegisterNetEvent('lgrs_garage:bounceKeys')
+AddEventHandler('lgrs_garage:bounceKeys', function(plate)
+    local src = source
+    print("SERVER: Bouncing keys for source " .. tostring(src) .. " with plate " .. tostring(plate))
+    TriggerClientEvent('lgrs_garage:useKeys', src, plate)
 end)

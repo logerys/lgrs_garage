@@ -1,3 +1,4 @@
+print("LGRS_GARAGE: CLIENT SCRIPT STARTING!")
 local ESX = exports['es_extended']:getSharedObject()
 local Peds = {}
 local Blips = {}
@@ -246,7 +247,10 @@ function OpenVehicleSubMenu(veh, props, isStored, inThisGarage, garageId, garage
         })
     end
 
-    if not isFaction then
+    local playerData = ESX.GetPlayerData()
+    local isFactionBoss = (playerData and playerData.job and playerData.job.grade_name == 'boss')
+
+    if not isFaction or isFactionBoss then
         -- Přejmenovat
         table.insert(options, {
             title = 'Přejmenovat vozidlo',
@@ -269,7 +273,8 @@ function OpenVehicleSubMenu(veh, props, isStored, inThisGarage, garageId, garage
         })
 
         -- Přepsat vozidlo
-        table.insert(options, {
+        if not isFaction then
+            table.insert(options, {
             title = 'Přepsat vozidlo (Darovat)',
             icon = 'hand-holding-hand',
             onSelect = function()
@@ -288,6 +293,35 @@ function OpenVehicleSubMenu(veh, props, isStored, inThisGarage, garageId, garage
                 end, veh.plate, input[1])
             end
         })
+        end
+
+        local playerData = ESX.GetPlayerData()
+        if playerData and playerData.job and playerData.job.grade_name == 'boss' then
+            table.insert(options, {
+                title = 'Darovat frakci (' .. playerData.job.label .. ')',
+                icon = 'building',
+                onSelect = function()
+                    local confirm = lib.alertDialog({
+                        header = 'Darovat vozidlo frakci?',
+                        content = 'Opravdu chceš trvale přepsat toto vozidlo na frakci '..playerData.job.label..'?',
+                        centered = true,
+                        cancel = true
+                    })
+                    if confirm == 'confirm' then
+                        ESX.TriggerServerCallback('lgrs_garage:transferToFaction', function(success, errorMsg)
+                            if success then
+                                lib.notify({title = 'Úspěch', description = 'Vozidlo bylo darováno frakci.', type = 'success'})
+                                OpenGarageMenu(garageId, garageData, isFaction)
+                            else
+                                lib.notify({title = 'Chyba', description = errorMsg, type = 'error'})
+                            end
+                        end, veh.plate)
+                    else
+                        OpenGarageMenu(garageId, garageData, isFaction)
+                    end
+                end
+            })
+        end
     end
 
     -- Locksmith (Vyrobit nové klíče)
@@ -620,8 +654,153 @@ AddEventHandler('lgrs_garage:giveCarMenu', function()
     TriggerServerEvent('lgrs_garage:giveCar', targetId, model, plate, garage)
 end)
 
+function StartGarageCreation(type)
+    local title = type == 'garage' and 'Vytvořit Garáž' or 'Vytvořit Odtahovku'
+    local input = lib.inputDialog(title, {
+        {type = 'input', label = Config.Locale.admin_garage_name, required = true}
+    })
+    
+    if not input then return end
+    local name = input[1]
+
+    CreateThread(function()
+        -- Krok 1: NPC
+        lib.showTextUI('[E] - Potvrdit pozici NPC\nStoupni si přesně tam, kam chceš umístit NPC.', {
+            position = "top-center",
+            icon = 'location-dot',
+            style = {
+                borderRadius = 5,
+                backgroundColor = '#1e1e24',
+                color = 'white'
+            }
+        })
+
+        -- Čekání na stisk tlačítka E (38)
+        while not IsControlJustReleased(0, 38) do
+            Wait(0)
+        end
+        lib.hideTextUI()
+
+        local playerPed = PlayerPedId()
+        local npcCoords = GetEntityCoords(playerPed)
+        local npcHeading = GetEntityHeading(playerPed)
+        local npcVector = vector4(npcCoords.x, npcCoords.y, npcCoords.z, npcHeading)
+
+        -- Malá pauza proti double-clicku
+        Wait(500)
+
+        -- Krok 2: Spawn
+        lib.showTextUI('[E] - Potvrdit pozici pro vozidla\nStoupni si tam, kde se budou spawnovat vozidla.', {
+            position = "top-center",
+            icon = 'car',
+            style = {
+                borderRadius = 5,
+                backgroundColor = '#1e1e24',
+                color = 'white'
+            }
+        })
+
+        -- Čekání na stisk tlačítka E (38)
+        while not IsControlJustReleased(0, 38) do
+            Wait(0)
+        end
+        lib.hideTextUI()
+
+        local spawnCoords = GetEntityCoords(playerPed)
+        local spawnHeading = GetEntityHeading(playerPed)
+        local spawnVector = vector4(spawnCoords.x, spawnCoords.y, spawnCoords.z, spawnHeading)
+        
+        TriggerServerEvent('lgrs_garage:createGarage', {
+            name = name,
+            type = type,
+            npc = npcVector,
+            spawn = spawnVector
+        })
+        lib.notify({title = 'Úspěch', description = 'Garáž byla úspěšně vytvořena.', type = 'success'})
+    end)
+end
+
+function OpenManageGaragesMenu()
+    local options = {}
+    for id, data in pairs(Garages) do
+        table.insert(options, {
+            title = data.name .. ' (' .. data.type .. ')',
+            description = 'ID: ' .. id,
+            icon = 'warehouse',
+            onSelect = function()
+                lib.registerContext({
+                    id = 'garage_admin_manage_'..id,
+                    title = data.name,
+                    menu = 'garage_admin_main',
+                    options = {
+                        {
+                            title = Config.Locale.admin_delete,
+                            icon = 'trash',
+                            onSelect = function()
+                                TriggerServerEvent('lgrs_garage:deleteGarage', id)
+                            end
+                        }
+                    }
+                })
+                lib.showContext('garage_admin_manage_'..id)
+            end
+        })
+    end
+
+    if #options == 0 then
+        lib.notify({title = 'Žádné garáže nenalezeny', type = 'error'})
+        return
+    end
+
+    lib.registerContext({
+        id = 'garage_admin_list',
+        title = 'Správa Garáží',
+        menu = 'garage_admin_main',
+        options = options
+    })
+    lib.showContext('garage_admin_list')
+end
+
+-- Úklid při zastavení resourcu
+AddEventHandler('onResourceStop', function(resource)
+    if resource == GetCurrentResourceName() then
+        CleanupGarages()
+    end
+end)
+
+-- Admin příkaz pro darování vozidla
+RegisterNetEvent('lgrs_garage:giveCarMenu')
+AddEventHandler('lgrs_garage:giveCarMenu', function()
+    local garageOptions = {}
+    -- Umožníme dát auto i ven (neuložené v žádné garáži)
+    table.insert(garageOptions, { value = 'none', label = 'Neukládat do garáže (nechat venku)' })
+    
+    for id, data in pairs(Garages) do
+        table.insert(garageOptions, { value = id, label = data.name .. ' (ID: ' .. id .. ')' })
+    end
+
+    local input = lib.inputDialog('Darovat Vozidlo', {
+        {type = 'number', label = 'ID Hráče', required = true},
+        {type = 'input', label = 'Model Vozidla (např. t20)', required = true},
+        {type = 'input', label = 'SPZ (nepovinné, vygeneruje se)'},
+        {type = 'select', label = 'Garáž', options = garageOptions, default = 'none'}
+    })
+
+    if not input then return end
+
+    local targetId = input[1]
+    local model = input[2]
+    local plate = input[3]
+    local garage = input[4]
+    
+    if garage == 'none' then garage = nil end
+
+    TriggerServerEvent('lgrs_garage:giveCar', targetId, model, plate, garage)
+end)
+
 RegisterNetEvent('lgrs_garage:useKeys')
 AddEventHandler('lgrs_garage:useKeys', function(plate)
+    print("LGRS_GARAGE: useKeys event received for plate:", plate)
     local playerPed = PlayerPedId()
     local coords = GetEntityCoords(playerPed)
     local vehicles = GetGamePool('CVehicle')
@@ -671,4 +850,19 @@ AddEventHandler('lgrs_garage:useKeys', function(plate)
     else
         lib.notify({title = 'Chyba', description = 'Vozidlo (SPZ: '..plate..') není v dosahu.', type = 'error'})
     end
+end)
+
+-- ox_inventory Client Export
+exports('useKeys', function(data, slot)
+    if not data or not data.metadata or not data.metadata.plate then
+        lib.notify({title = 'Chyba', description = 'Tyto klíče nemají žádnou SPZ.', type = 'error'})
+        return
+    end
+
+    local plate = data.metadata.plate
+    TriggerEvent('lgrs_garage:useKeys', plate)
+end)
+
+exports('useKeysDirect', function(plate)
+    TriggerEvent('lgrs_garage:useKeys', plate)
 end)

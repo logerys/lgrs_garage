@@ -19,6 +19,14 @@ client_scripts {
     'client/main.lua'
 }
 
+exports {
+    'useKeys',
+    'useKeysDirect'
+}
+server_exports {
+    'useKeys'
+}
+
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/main.lua'
