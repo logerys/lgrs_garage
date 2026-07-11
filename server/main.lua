@@ -195,11 +195,15 @@ ESX.RegisterCommand('givecar', 'admin', function(xPlayer, args, showError)
     TriggerClientEvent('lgrs_garage:giveCarMenu', xPlayer.source)
 end, true, {help = 'Otevře menu pro darování vozidla hráči.'})
 
+ESX.RegisterCommand('givecompany', 'admin', function(xPlayer, args, showError)
+    TriggerClientEvent('lgrs_garage:giveCompanyMenu', xPlayer.source)
+end, true, {help = 'Otevře menu pro přidání více vozidel rovnou do frakce.'})
+
 -- Funkce pro generování náhodné SPZ
 local function GeneratePlate()
-    local letters = string.char(math.random(65, 90), math.random(65, 90), math.random(65, 90))
-    local numbers = string.format("%03d", math.random(0, 999))
-    return letters .. " " .. numbers
+    local letters = string.char(math.random(65, 90), math.random(65, 90), math.random(65, 90), math.random(65, 90))
+    local numbers = string.format("%04d", math.random(0, 9999))
+    return letters .. numbers
 end
 
 RegisterNetEvent('lgrs_garage:giveCar')
@@ -241,6 +245,40 @@ AddEventHandler('lgrs_garage:giveCar', function(targetId, model, plate, garageId
                 TriggerClientEvent('ox_lib:notify', tPlayer.source, {title = 'Nové Vozidlo', description = 'Dostal jsi vozidlo s SPZ '..plate, type = 'success'})
             end)
         end
+    end)
+end)
+
+RegisterNetEvent('lgrs_garage:giveCompanyCars')
+AddEventHandler('lgrs_garage:giveCompanyCars', function(factionName, model, count, garageId)
+    local src = source
+    local xPlayer = ESX.GetPlayerFromId(src)
+    if not Config.AdminGroups[xPlayer.getGroup()] then return end
+
+    if not factionName or factionName == '' or not model or model == '' then
+        return TriggerClientEvent('ox_lib:notify', src, {title = 'Chyba', description = 'Neplatné argumenty.', type = 'error'})
+    end
+
+    local stored = garageId and 1 or 0
+    local parking = garageId or nil
+
+    CreateThread(function()
+        local added = 0
+        for i=1, count do
+            local plate = GeneratePlate()
+            plate = string.sub(plate, 1, 8)
+            
+            local vehicleProps = {
+                model = joaat(model),
+                plate = plate
+            }
+
+            MySQL.insert.await('INSERT INTO owned_vehicles (owner, plate, vehicle, type, stored, parking) VALUES (?, ?, ?, ?, ?, ?)', {
+                factionName, plate, json.encode(vehicleProps), 'car', stored, parking
+            })
+            added = added + 1
+            Wait(50) -- Malá pauzička, aby server nezamrzl při vkládání 100 aut
+        end
+        TriggerClientEvent('ox_lib:notify', src, {title = 'Úspěch', description = 'Přidáno '..added..' vozidel typu '..model..' do frakce '..factionName..'.', type = 'success'})
     end)
 end)
 

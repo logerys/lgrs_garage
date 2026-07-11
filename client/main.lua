@@ -220,31 +220,33 @@ end
 function OpenVehicleSubMenu(veh, props, isStored, inThisGarage, garageId, garageData, isFaction)
     local options = {}
 
-    if isStored and inThisGarage then
-        table.insert(options, {
-            title = Config.Locale.retrieve_vehicle,
-            icon = 'key',
-            description = 'Vytáhne vozidlo z garáže',
-            onSelect = function()
-                SpawnVehicle(veh.plate, garageData.spawn)
-            end
-        })
-    elseif isStored and not inThisGarage then
-        table.insert(options, {
-            title = string.format(Config.Locale.transfer_vehicle, Config.TransferPrice),
-            icon = 'money-bill',
-            description = 'Přesunout sem z jiné garáže',
-            onSelect = function()
-                ESX.TriggerServerCallback('lgrs_garage:transferVehicle', function(success, errorMsg)
-                    if success then
-                        lib.notify({title = 'Úspěch', description = Config.Locale.transfer_success, type = 'success'})
-                        OpenGarageMenu(garageId, garageData, isFaction)
-                    else
-                        lib.notify({title = 'Chyba', description = errorMsg or Config.Locale.transfer_no_money, type = 'error'})
-                    end
-                end, veh.plate, garageId)
-            end
-        })
+    if isStored then
+        if inThisGarage or isFaction then
+            table.insert(options, {
+                title = Config.Locale.retrieve_vehicle,
+                icon = 'key',
+                description = 'Vytáhne vozidlo z garáže',
+                onSelect = function()
+                    SpawnVehicle(veh.plate, garageData.spawn)
+                end
+            })
+        else
+            table.insert(options, {
+                title = string.format(Config.Locale.transfer_vehicle, Config.TransferPrice),
+                icon = 'money-bill',
+                description = 'Přesunout sem z jiné garáže',
+                onSelect = function()
+                    ESX.TriggerServerCallback('lgrs_garage:transferVehicle', function(success, errorMsg)
+                        if success then
+                            lib.notify({title = 'Úspěch', description = Config.Locale.transfer_success, type = 'success'})
+                            OpenGarageMenu(garageId, garageData, isFaction)
+                        else
+                            lib.notify({title = 'Chyba', description = errorMsg or Config.Locale.transfer_no_money, type = 'error'})
+                        end
+                    end, veh.plate, garageId)
+                end
+            })
+        end
     end
 
     local playerData = ESX.GetPlayerData()
@@ -296,7 +298,7 @@ function OpenVehicleSubMenu(veh, props, isStored, inThisGarage, garageId, garage
         end
 
         local playerData = ESX.GetPlayerData()
-        if playerData and playerData.job and playerData.job.grade_name == 'boss' then
+        if not isFaction and playerData and playerData.job and playerData.job.grade_name == 'boss' then
             table.insert(options, {
                 title = 'Darovat frakci (' .. playerData.job.label .. ')',
                 icon = 'building',
@@ -798,6 +800,34 @@ AddEventHandler('lgrs_garage:giveCarMenu', function()
     TriggerServerEvent('lgrs_garage:giveCar', targetId, model, plate, garage)
 end)
 
+RegisterNetEvent('lgrs_garage:giveCompanyMenu')
+AddEventHandler('lgrs_garage:giveCompanyMenu', function()
+    local garageOptions = {}
+    table.insert(garageOptions, { value = 'none', label = 'Neukládat do konkrétní garáže (nechat venku)' })
+    
+    for id, data in pairs(Garages) do
+        table.insert(garageOptions, { value = id, label = data.name .. ' (ID: ' .. id .. ')' })
+    end
+
+    local input = lib.inputDialog('Darovat Vozidla Frakci', {
+        {type = 'input', label = 'Název frakce (např. police)', required = true},
+        {type = 'input', label = 'Model Vozidla (např. police2)', required = true},
+        {type = 'number', label = 'Počet kusů', required = true, default = 1, min = 1, max = 100},
+        {type = 'select', label = 'Garáž', options = garageOptions, default = 'none'}
+    })
+
+    if not input then return end
+
+    local factionName = input[1]
+    local model = input[2]
+    local count = input[3]
+    local garage = input[4]
+    
+    if garage == 'none' then garage = nil end
+
+    TriggerServerEvent('lgrs_garage:giveCompanyCars', factionName, model, count, garage)
+end)
+
 RegisterNetEvent('lgrs_garage:useKeys')
 AddEventHandler('lgrs_garage:useKeys', function(plate)
     print("LGRS_GARAGE: useKeys event received for plate:", plate)
@@ -854,12 +884,14 @@ end)
 
 -- ox_inventory Client Export
 exports('useKeys', function(data, slot)
-    if not data or not data.metadata or not data.metadata.plate then
+    -- ox_inventory passes the generic item data as 'data' and the specific inventory slot as 'slot'
+    -- The metadata (plate) is located inside the slot
+    if not slot or not slot.metadata or not slot.metadata.plate then
         lib.notify({title = 'Chyba', description = 'Tyto klíče nemají žádnou SPZ.', type = 'error'})
         return
     end
 
-    local plate = data.metadata.plate
+    local plate = slot.metadata.plate
     TriggerEvent('lgrs_garage:useKeys', plate)
 end)
 
